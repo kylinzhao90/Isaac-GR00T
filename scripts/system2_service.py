@@ -13,47 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-GR00T Inference Service
-
-This script provides both ZMQ and HTTP server/client implementations for deploying GR00T models.
-The HTTP server exposes a REST API for easy integration with web applications and other services.
-
-1. Default is zmq server.
-
-Run server: python scripts/inference_service.py --server
-Run client: python scripts/inference_service.py --client
-
-2. Run as Http Server:
-
-Dependencies for `http_server` mode:
-    => Server (runs GR00T model on GPU): `pip install uvicorn fastapi json-numpy`
-    => Client: `pip install requests json-numpy`
-
-HTTP Server Usage:
-    python scripts/inference_service.py --server --http-server --port 8000
-
-HTTP Client Usage (assuming a server running on 0.0.0.0:8000):
-    python scripts/inference_service.py --client --http-server --host 0.0.0.0 --port 8000
-
-You can use bore to forward the port to your client: `159.223.171.199` is bore.pub.
-    bore local 8000 --to 159.223.171.199
-
-3. TensorRT Support:
-
-For accelerated inference using TensorRT, first build the TensorRT engines using the deployment scripts,
-then run the server with the --use-tensorrt flag:
-
-TensorRT Server Usage:
-    python scripts/inference_service.py --server --use-tensorrt --trt-engine-path gr00t_engine
-
-TensorRT HTTP Server Usage:
-    python scripts/inference_service.py --server --http-server --use-tensorrt --trt-engine-path gr00t_engine --port 8000
-
-Note: TensorRT engines must be built before running with --use-tensorrt flag.
-See deployment_scripts/README.md for instructions on building TensorRT engines.
-"""
-
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -64,7 +23,7 @@ import tyro
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
-from gr00t.model.policy import Gr00tPolicy
+from gr00t.model.system2_policy import Gr00tPolicy
 
 
 @dataclass
@@ -85,7 +44,7 @@ class ArgsConfig:
     See gr00t/experiment/data_config.py for more details.
     """
 
-    port: int = 5555
+    port: int = 5556
     """The port number for the server."""
 
     host: str = "localhost"
@@ -207,7 +166,7 @@ def main(args: ArgsConfig):
 
         # Start the server
         if args.http_server:
-            from gr00t.eval.http_server import HTTPInferenceServer  # noqa: F401
+            from gr00t.eval.system2_server import HTTPInferenceServer  # noqa: F401
 
             server = HTTPInferenceServer(
                 policy, port=args.port, host=args.host, api_token=args.api_token

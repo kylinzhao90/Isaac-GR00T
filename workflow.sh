@@ -1,0 +1,5 @@
+python scripts/gr00t_finetune.py --dataset-path /root/dataset/so101-table-cleanup/ --num-gpus 1 --batch-size 4 --output-dir ~/so101-checkpoints --max-steps 10000 --data-config so100_dualcam --video-backend torchvision_av --lora-rank 8 --dataloader-num-workers 2
+python scripts/eval_policy.py --plot --embodiment_tag new_embodiment --model_path ~/so101-checkpoints/checkpoint-10000/ --data_config so100_dualcam --dataset_path /root/dataset/so101-table-cleanup/ --modality_keys single_arm gripper --video-backend torchvision_av
+python scripts/inference_service.py --server --model_path ~/so101-checkpoints/checkpoint-10000/ --embodiment-tag new_embodiment --data-config so100_dualcam --denoising-steps 4 --http-server
+python scripts/system1_service.py --server --model_path ~/so101-checkpoints/checkpoint-10000/ --embodiment-tag new_embodiment --data-config so100_dualcam --denoising-steps 4 --http-server
+python scripts/system2_service.py --server --model_path ~/so101-checkpoints/checkpoint-10000/ --embodiment-tag new_embodiment --data-config so100_dualcam --denoising-steps 4 --http-server

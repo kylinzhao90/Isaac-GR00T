@@ -172,22 +172,8 @@ class GR00T_N1_5(PreTrainedModel):
         self,
         inputs: dict,
     ) -> BatchFeature:
-        import time
-        gr00t_start = time.time()
-        backbone_inputs, action_inputs = self.prepare_input(inputs)
-        # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
-        print(f"Gr00t Model: Total time taken to get action from gr00t prepare input: {time.time() - gr00t_start} seconds")
-        eagle_start = time.time()
-        backbone_outputs = self.backbone(backbone_inputs)
-        print(f"Gr00t Model: Total time taken to get action from eagle backbone: {time.time() - eagle_start} seconds")
-        head_start = time.time()
-        action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
-        print(f"Gr00t Model: Total time taken to get action from head action: {time.time() - head_start} seconds")
-        validate_start = time.time()
-        self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
-        print(f"Gr00t Model: Total time taken to get action from validate output: {time.time() - validate_start} seconds")
-        print(f"Gr00t Model: Total time taken to get action from gr00t: {time.time() - gr00t_start} seconds")
-        return action_head_outputs
+        backbone_outputs = self.backbone(inputs)
+        return backbone_outputs
 
     def prepare_input(self, inputs) -> Tuple[BatchFeature, BatchFeature]:
         self.validate_inputs(inputs)

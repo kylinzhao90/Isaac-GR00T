@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""
+GR00T HTTP Server Module
+
+This module provides HTTP server functionality for GR00T model inference.
+It exposes a REST API for easy integration with web applications and other services.
+
+Dependencies:
+    => Server: `pip install uvicorn fastapi json-numpy`
+    => Client: `pip install requests json-numpy`
+"""
+
+import json
+import pickle
+import logging
+import traceback
+from typing import Any, Dict, Optional
+
+import json_numpy
+import uvicorn
+from fastapi import Body, Request, FastAPI, HTTPException
+from fastapi.responses import Response, JSONResponse, StreamingResponse
+
+from gr00t.model.policy import Gr00tPolicy
+
+# Patch json to handle numpy arrays
+json_numpy.patch()
+
+
+class HTTPInferenceServer:
+    def __init__(
+        self, policy: Gr00tPolicy, port: int, host: str = "0.0.0.0", api_token: Optional[str] = None
+    ):
+        self.policy = policy
+        self.port = port
+        self.host = host
+        self.api_token = api_token
+        self.app = FastAPI(title="GR00T System2 Inference Server", version="1.0.0")
+
+        # Register endpoints
+        self.app.post("/act")(self.predict_action)
+        self.app.get("/health")(self.health_check)
+
+    def predict_action(self, payload: bytes = Body(...)) -> StreamingResponse:
+        try:
+            batchfeatures = pickle.loads(payload)
+            action = self.policy.get_action(batchfeatures)
+            actionfeatures =  pickle.dumps(action)
+            #import pdb;pdb.set_trace()
+            #def byte_stream():
+            #    yield actionfeatures
+            return Response(content=actionfeatures, media_type="application/octet-stream")
+            #return StreamingResponse(content=byte_stream(),media_type="application/octet-stream")
+
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            logging.warning(
+                "Your request threw an error; make sure your request complies with the expected format:\n"
+                "{'observation': dict} where observation contains the required modalities.\n"
+                "Example observation keys: video.ego_view, state.left_arm, state.right_arm, etc."
+            )
+            raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+    def health_check(self) -> Dict[str, str]:
+        """Health check endpoint."""
+        return {"status": "healthy", "model": "GR00T"}
+
+    def run(self) -> None:
+        """Start the HTTP server."""
+        print(f"Starting GR00T HTTP server on {self.host}:{self.port}")
+        print("Available endpoints:")
+        print("  POST /act - Get action prediction from observation")
+        print("  GET  /health - Health check")
+        uvicorn.run(self.app, host=self.host, port=self.port)
+
+
+def create_http_server(
+    policy: Gr00tPolicy, port: int, host: str = "0.0.0.0", api_token: Optional[str] = None
+) -> HTTPInferenceServer:
+    """Factory function to create an HTTP inference server."""
+    return HTTPInferenceServer(policy, port, host, api_token)

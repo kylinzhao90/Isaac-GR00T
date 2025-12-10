@@ -27,7 +27,7 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
-from gr00t.model.gr00t_n1 import GR00T_N1_5
+from gr00t.model.system1_gr00t_n1 import GR00T_N1_5
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -35,33 +35,14 @@ COMPUTE_DTYPE = torch.bfloat16
 class BasePolicy(ABC):
     @abstractmethod
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Abstract method to get the action for a given state.
-
-        Args:
-            observations: The observations from the environment.
-
-        Returns:
-            The action to take in the environment in dictionary format.
-        """
         raise NotImplementedError
 
     @abstractmethod
     def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        """
-        Return the modality config of the policy.
-        """
         raise NotImplementedError
 
 
 class Gr00tPolicy(BasePolicy):
-    """
-    A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
-    making predictions, and unapplying transforms. This loads some custom configs, stats
-    and metadata related to the model checkpoints used
-    in the Gr00t model.
-    """
-
     def __init__(
         self,
         model_path: str,
@@ -71,17 +52,6 @@ class Gr00tPolicy(BasePolicy):
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
     ):
-        """
-        Initialize the Gr00tPolicy.
-
-        Args:
-            model_path (str): Path to the model checkpoint directory or the huggingface hub id.
-            modality_config (Dict[str, ModalityConfig]): The modality config for the model.
-            modality_transform (ComposedModalityTransform): The modality transform for the model.
-            embodiment_tag (Union[str, EmbodimentTag]): The embodiment tag for the model.
-            denoising_steps: Number of denoising steps to use for the action head.
-            device (Union[int, str]): Device to run the model on.
-        """
         try:
             # NOTE(YL) this returns the local path to the model which is normally
             # saved in ~/.cache/huggingface/hub/
@@ -98,17 +68,13 @@ class Gr00tPolicy(BasePolicy):
         self.model_path = Path(model_path)
         self.device = device
 
-        # Convert string embodiment tag to EmbodimentTag enum if needed
         if isinstance(embodiment_tag, str):
             self.embodiment_tag = EmbodimentTag(embodiment_tag)
         else:
             self.embodiment_tag = embodiment_tag
 
-        # Load model
         self._load_model(model_path)
-        # Load transforms
         self._load_metadata(self.model_path / "experiment_cfg")
-        # Load horizons
         self._load_horizons()
 
         if denoising_steps is not None:
@@ -119,84 +85,30 @@ class Gr00tPolicy(BasePolicy):
                 print(f"Set action denoising steps to {denoising_steps}")
 
     def apply_transforms(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Apply transforms to the observation.
-
-        Args:
-            obs (Dict[str, Any]): The observation to transform.
-
-        Returns:
-            Dict[str, Any]: The transformed observation.
-        """
-        # Ensure correct dimensions before applying transforms
         return self._modality_transform(obs)
 
     def unapply_transforms(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Unapply transforms to the action.
-
-        Args:
-            action (Dict[str, Any]): The action to unapply transforms to.
-
-        Returns:
-            Dict[str, Any]: The untransformed action.
-        """
         return self._modality_transform.unapply(action)
 
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Make a prediction with the model.
-        Args:
-            obs (Dict[str, Any]): The observation to make a prediction for.
-
-        e.g. obs = {
-            "video.<>": np.ndarray,  # (T, H, W, C)
-            "state.<>": np.ndarray, # (T, D)
-            "annotation.<>": np.ndarray, # (T, )
-        }
-
-        or with batched input:
-        e.g. obs = {
-            "video.<>": np.ndarray,, # (B, T, H, W, C)
-            "state.<>": np.ndarray, # (B, T, D)
-            "annotation.<>": np.ndarray, # (B, T, )
-        }
-
-        Returns:
-            Dict[str, Any]: The predicted action.
-        """
-        import time
-        start_time = time.time()
-
-        # Create a copy to avoid mutating input
         obs_copy = observations.copy()
 
         is_batch = self._check_state_is_batched(obs_copy)
         if not is_batch:
             obs_copy = unsqueeze_dict_values(obs_copy)
-
-        # Convert to numpy arrays
         for k, v in obs_copy.items():
             if not isinstance(v, np.ndarray):
                 obs_copy[k] = np.array(v)
 
-        transform_apply_start = time.time()
         normalized_input = self.apply_transforms(obs_copy)
-        print(f"Policy: Total time taken to get action from transform apply: {time.time() - transform_apply_start} seconds")
-        gr00t_start = time.time()
         normalized_action = self._get_action_from_normalized_input(normalized_input)
-        print(f"Policy: Total time taken to get action from gr00t: {time.time() - gr00t_start} seconds")
-        transformer_unapply_start = time.time()
         unnormalized_action = self._get_unnormalized_action(normalized_action)
-        print(f"Policy: Total time taken to get action from transform unapply: {time.time() - transformer_unapply_start} seconds")
 
         if not is_batch:
             unnormalized_action = squeeze_dict_values(unnormalized_action)
-        print(f"Policy: Total time taken to get action from GR00T Proxy: {time.time() - start_time} seconds")
         return unnormalized_action
 
     def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
-        # Set up autocast context if needed
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
             model_pred = self.model.get_action(normalized_input)
 
@@ -207,9 +119,6 @@ class Gr00tPolicy(BasePolicy):
         return self.unapply_transforms({"action": normalized_action.cpu()})
 
     def get_modality_config(self) -> Dict[str, ModalityConfig]:
-        """
-        Get the modality config for the model, overrides the base class method
-        """
         return self._modality_config
 
     @property
@@ -222,22 +131,18 @@ class Gr00tPolicy(BasePolicy):
 
     @property
     def video_delta_indices(self) -> np.ndarray:
-        """Get the video delta indices."""
         return self._video_delta_indices
 
     @property
     def state_delta_indices(self) -> np.ndarray | None:
-        """Get the state delta indices."""
         return self._state_delta_indices
 
     @property
     def denoising_steps(self) -> int:
-        """Get the number of denoising steps."""
         return self.model.action_head.num_inference_timesteps
 
     @denoising_steps.setter
     def denoising_steps(self, value: int):
-        """Set the number of denoising steps."""
         self.model.action_head.num_inference_timesteps = value
 
     def _check_state_is_batched(self, obs: Dict[str, Any]) -> bool:
@@ -287,13 +192,10 @@ class Gr00tPolicy(BasePolicy):
         self.model = model
 
     def _load_metadata(self, exp_cfg_dir: Path):
-        """Load the transforms for the model."""
-        # Load metadata for normalization stats
         metadata_path = exp_cfg_dir / "metadata.json"
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
 
-        # Get metadata for the specific embodiment
         metadata_dict = metadatas.get(self.embodiment_tag.value)
         if metadata_dict is None:
             raise ValueError(
@@ -307,13 +209,9 @@ class Gr00tPolicy(BasePolicy):
         self.metadata = metadata
 
     def _load_horizons(self):
-        """Load the horizons needed for the model."""
-        # Get modality configs
-        # Video horizons
         self._video_delta_indices = np.array(self._modality_config["video"].delta_indices)
         self._assert_delta_indices(self._video_delta_indices)
         self._video_horizon = len(self._video_delta_indices)
-        # State horizons (if used)
         if "state" in self._modality_config:
             self._state_delta_indices = np.array(self._modality_config["state"].delta_indices)
             self._assert_delta_indices(self._state_delta_indices)
@@ -323,10 +221,7 @@ class Gr00tPolicy(BasePolicy):
             self._state_delta_indices = None
 
     def _assert_delta_indices(self, delta_indices: np.ndarray):
-        """Assert that the delta indices are valid."""
-        # All delta indices should be non-positive because there's no way to get the future observations
         assert np.all(delta_indices <= 0), f"{delta_indices=}"
-        # The last delta index should be 0 because it doesn't make sense to not use the latest observation
         assert delta_indices[-1] == 0, f"{delta_indices=}"
         if len(delta_indices) > 1:
             # The step is consistent

@@ -19,6 +19,8 @@ from typing import Tuple
 import numpy as np
 import torch
 import tree
+import requests
+import pickle
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
@@ -172,21 +174,17 @@ class GR00T_N1_5(PreTrainedModel):
         self,
         inputs: dict,
     ) -> BatchFeature:
-        import time
-        gr00t_start = time.time()
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
-        print(f"Gr00t Model: Total time taken to get action from gr00t prepare input: {time.time() - gr00t_start} seconds")
-        eagle_start = time.time()
-        backbone_outputs = self.backbone(backbone_inputs)
-        print(f"Gr00t Model: Total time taken to get action from eagle backbone: {time.time() - eagle_start} seconds")
-        head_start = time.time()
+        backbone_dict = pickle.dumps(backbone_inputs,protocol=pickle.HIGHEST_PROTOCOL)
+        import sys
+        print(sys.getsizeof(backbone_dict))
+        from pympler import asizeof
+        print(asizeof.asizeof(backbone_dict))
+        response = requests.post(f"http://localhost:5556/act",data=backbone_dict,headers={"Content-Type": "application/octet-stream"})
+        backbone_outputs = pickle.loads(response.content)
         action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
-        print(f"Gr00t Model: Total time taken to get action from head action: {time.time() - head_start} seconds")
-        validate_start = time.time()
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
-        print(f"Gr00t Model: Total time taken to get action from validate output: {time.time() - validate_start} seconds")
-        print(f"Gr00t Model: Total time taken to get action from gr00t: {time.time() - gr00t_start} seconds")
         return action_head_outputs
 
     def prepare_input(self, inputs) -> Tuple[BatchFeature, BatchFeature]:

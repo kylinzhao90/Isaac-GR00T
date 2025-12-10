@@ -22,12 +22,13 @@ import numpy as np
 import torch
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
+from transformers import BatchFeature
 
 from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
-from gr00t.model.gr00t_n1 import GR00T_N1_5
+from gr00t.model.system2_gr00t_n1 import GR00T_N1_5
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -55,12 +56,6 @@ class BasePolicy(ABC):
 
 
 class Gr00tPolicy(BasePolicy):
-    """
-    A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
-    making predictions, and unapplying transforms. This loads some custom configs, stats
-    and metadata related to the model checkpoints used
-    in the Gr00t model.
-    """
 
     def __init__(
         self,
@@ -71,17 +66,6 @@ class Gr00tPolicy(BasePolicy):
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
     ):
-        """
-        Initialize the Gr00tPolicy.
-
-        Args:
-            model_path (str): Path to the model checkpoint directory or the huggingface hub id.
-            modality_config (Dict[str, ModalityConfig]): The modality config for the model.
-            modality_transform (ComposedModalityTransform): The modality transform for the model.
-            embodiment_tag (Union[str, EmbodimentTag]): The embodiment tag for the model.
-            denoising_steps: Number of denoising steps to use for the action head.
-            device (Union[int, str]): Device to run the model on.
-        """
         try:
             # NOTE(YL) this returns the local path to the model which is normally
             # saved in ~/.cache/huggingface/hub/
@@ -143,65 +127,15 @@ class Gr00tPolicy(BasePolicy):
         """
         return self._modality_transform.unapply(action)
 
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Make a prediction with the model.
-        Args:
-            obs (Dict[str, Any]): The observation to make a prediction for.
+    def get_action(self, inputs) -> torch.Tensor:
+        input_copy = inputs.copy()
+        backbone_outputs = self._get_action_from_normalized_input(input_copy)
+        return backbone_outputs
 
-        e.g. obs = {
-            "video.<>": np.ndarray,  # (T, H, W, C)
-            "state.<>": np.ndarray, # (T, D)
-            "annotation.<>": np.ndarray, # (T, )
-        }
-
-        or with batched input:
-        e.g. obs = {
-            "video.<>": np.ndarray,, # (B, T, H, W, C)
-            "state.<>": np.ndarray, # (B, T, D)
-            "annotation.<>": np.ndarray, # (B, T, )
-        }
-
-        Returns:
-            Dict[str, Any]: The predicted action.
-        """
-        import time
-        start_time = time.time()
-
-        # Create a copy to avoid mutating input
-        obs_copy = observations.copy()
-
-        is_batch = self._check_state_is_batched(obs_copy)
-        if not is_batch:
-            obs_copy = unsqueeze_dict_values(obs_copy)
-
-        # Convert to numpy arrays
-        for k, v in obs_copy.items():
-            if not isinstance(v, np.ndarray):
-                obs_copy[k] = np.array(v)
-
-        transform_apply_start = time.time()
-        normalized_input = self.apply_transforms(obs_copy)
-        print(f"Policy: Total time taken to get action from transform apply: {time.time() - transform_apply_start} seconds")
-        gr00t_start = time.time()
-        normalized_action = self._get_action_from_normalized_input(normalized_input)
-        print(f"Policy: Total time taken to get action from gr00t: {time.time() - gr00t_start} seconds")
-        transformer_unapply_start = time.time()
-        unnormalized_action = self._get_unnormalized_action(normalized_action)
-        print(f"Policy: Total time taken to get action from transform unapply: {time.time() - transformer_unapply_start} seconds")
-
-        if not is_batch:
-            unnormalized_action = squeeze_dict_values(unnormalized_action)
-        print(f"Policy: Total time taken to get action from GR00T Proxy: {time.time() - start_time} seconds")
-        return unnormalized_action
-
-    def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
-        # Set up autocast context if needed
+    def _get_action_from_normalized_input(self, inputs) -> torch.Tensor:
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
-            model_pred = self.model.get_action(normalized_input)
-
-        normalized_action = model_pred["action_pred"].float()
-        return normalized_action
+            backbone_outputs = self.model.get_action(inputs)
+        return backbone_outputs
 
     def _get_unnormalized_action(self, normalized_action: torch.Tensor) -> Dict[str, Any]:
         return self.unapply_transforms({"action": normalized_action.cpu()})
