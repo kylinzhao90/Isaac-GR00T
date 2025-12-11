@@ -115,7 +115,7 @@ class ArgsConfig:
     vit_dtype: Literal["fp16", "fp8"] = "fp8"
     """ViT model dtype (fp16, fp8). Only used when use_tensorrt is True."""
 
-    llm_dtype: Literal["fp16", "nvfp4", "fp8"] = "nvfp4"
+    llm_dtype: Literal["fp16", "nvfp4", "fp8"] = "fp8"
     """LLM model dtype (fp16, nvfp4, fp8). Only used when use_tensorrt is True."""
 
     dit_dtype: Literal["fp16", "fp8"] = "fp8"

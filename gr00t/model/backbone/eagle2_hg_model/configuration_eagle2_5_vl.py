@@ -23,7 +23,7 @@ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 from transformers.models.siglip.configuration_siglip import SiglipVisionConfig
 from transformers.utils import logging
 
-from .radio_model import RADIOConfig
+#from .radio_model import RADIOConfig
 
 logger = logging.get_logger(__name__)
 

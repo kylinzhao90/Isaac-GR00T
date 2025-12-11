@@ -69,7 +69,7 @@ class Gr00tPolicy(BasePolicy):
         modality_config: Dict[str, ModalityConfig],
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
-        device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
+        device: Union[int, str] = "xpu" if torch.xpu.is_available() else "cpu",
     ):
         """
         Initialize the Gr00tPolicy.

@@ -23,7 +23,7 @@ from transformers.models.siglip.modeling_siglip import SiglipVisionModel
 from transformers.utils import add_start_docstrings, logging
 
 from .configuration_eagle2_5_vl import Eagle2_5_VLConfig
-from .radio_model import RADIOModel
+#from .radio_model import RADIOModel
 
 logger = logging.get_logger(__name__)
 
